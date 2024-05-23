@@ -9,11 +9,19 @@ use std::{
 };
 use {directories::UserDirs, lazy_regex::*};
 
-fn press_to_exit(exit_code: i32) -> ! {
-    println!("Press enter to exit");
-    let mut buffer = String::new();
-    let _ = io::stdin().read_line(&mut buffer);
+fn handle_exit(exit_code: i32, show_exit_message: bool) -> ! {
+    if show_exit_message {
+        println!("Press enter to exit");
+        let mut buffer = String::new();
+        let _ = io::stdin().read_line(&mut buffer);
+    }
     exit(exit_code);
+}
+
+fn handle_message_output(message: &str, print_to_stdout: bool) {
+    if print_to_stdout {
+        println!("{}", message);
+    }
 }
 
 #[derive(Debug)]
@@ -51,6 +59,14 @@ struct Args {
     /// 0 = Combine headers, 1 = Remove headers, 2 = Ignore headers
     #[arg(short = 'm', long, default_value_t = 0)]
     headers_mode: u8,
+
+    /// Suppress all output
+    #[arg(short = 'q', long)]
+    quiet: bool,
+
+    /// Skip the `press enter to exit` prompt
+    #[arg(short = 's', long)]
+    skip_waiting: bool,
 }
 
 fn data_from_csv(path: PathBuf) -> Result<Vec<Vec<String>>, Box<dyn Error>> {
@@ -190,7 +206,10 @@ fn main() {
     let folder_name = match args.folder {
         Some(folder) => folder,
         None => {
-            println!("No folder provided, using default folder 'input'");
+            handle_message_output(
+                "No folder provided, using default folder 'input'",
+                !args.quiet,
+            );
             "./input".to_string()
         }
     };
@@ -198,27 +217,33 @@ fn main() {
     let spreadsheet_folder = match Path::new(&folder_name).canonicalize() {
         Ok(path) => path,
         Err(e) => {
-            println!(" '{}': {}", &folder_name, e.to_string());
-            press_to_exit(1);
+            handle_message_output(
+                &format!(" '{}': {}", &folder_name, e.to_string()),
+                !args.quiet,
+            );
+            // println!(" '{}': {}", &folder_name, e.to_string());
+            handle_exit(1, !args.skip_waiting);
         }
     };
 
     if !spreadsheet_folder.is_dir() {
-        println!("Argument for folder must be a valid folder");
-        press_to_exit(1);
+        handle_message_output("Argument for folder must be a valid folder", !args.quiet);
+        // println!("Argument for folder must be a valid folder");
+        handle_exit(1, !args.skip_waiting);
     }
 
     let output_file = path_from(".", &args.out_file);
     if output_file.is_dir() {
-        println!("Output file cannot be a directory");
-        press_to_exit(1);
+        handle_message_output("Output file cannot be a directory", !args.quiet);
+        // println!("Output file cannot be a directory");
+        handle_exit(1, !args.skip_waiting);
     }
 
     let dir = match fs::read_dir(spreadsheet_folder) {
         Ok(d) => d,
         Err(e) => {
             println!("Error opening the inputs folder: {}", e.to_string());
-            press_to_exit(1);
+            handle_exit(1, !args.skip_waiting);
         }
     };
 
@@ -346,7 +371,15 @@ fn main() {
     }
 
     match save_to_csv(&combined_spreadsheet_data, &output_file) {
-        Ok(_) => println!("Success: {} lines written", combined_spreadsheet_data.len()),
-        Err(e) => println!("Failure {}", e.to_string()),
+        Ok(_) => {
+            println!("Success: {} lines written", combined_spreadsheet_data.len());
+            handle_exit(0, !args.skip_waiting)
+        }
+        Err(e) => {
+            println!("Failure {}", e.to_string());
+            handle_exit(1, !args.skip_waiting)
+        }
     }
 }
+
+// TODO: Add option to ignore press enter to continue
